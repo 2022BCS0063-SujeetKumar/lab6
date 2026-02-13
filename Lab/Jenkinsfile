@@ -1,4 +1,4 @@
-pipeline {
+\pipeline {
     agent any
 
     environment {
@@ -19,7 +19,7 @@ pipeline {
                 python3 -m venv venv
                 . venv/bin/activate
                 pip install --upgrade pip
-                pip install -r requirements.txt
+                pip install -r Lab/requirements.txt
                 '''
             }
         }
@@ -28,7 +28,7 @@ pipeline {
             steps {
                 sh '''
                 . venv/bin/activate
-                python app/train.py
+                python Lab/app/train.py
                 '''
             }
         }
@@ -36,7 +36,7 @@ pipeline {
         stage('Read Accuracy') {
             steps {
                 script {
-                    def metrics = readJSON file: 'app/artifacts/metrics.json'
+                    def metrics = readJSON file: 'Lab/app/artifacts/metrics.json'
                     env.CURRENT_ACCURACY = metrics.r2.toString()
                     echo "Current Accuracy: ${env.CURRENT_ACCURACY}"
                 }
@@ -68,7 +68,7 @@ pipeline {
             }
             steps {
                 script {
-                    docker.build("${DOCKER_IMAGE}:${BUILD_NUMBER}")
+                    docker.build("${DOCKER_IMAGE}:${BUILD_NUMBER}", "Lab")
                 }
             }
         }
@@ -99,7 +99,7 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'app/artifacts/**', fingerprint: true
+            archiveArtifacts artifacts: 'Lab/app/artifacts/**', fingerprint: true
         }
     }
 }
