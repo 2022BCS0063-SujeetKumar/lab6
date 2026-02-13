@@ -8,8 +8,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_squared_error
 
 # Create required directories
-os.makedirs("model", exist_ok=True)
-os.makedirs("app/artifacts", exist_ok=True)
+os.makedirs("Lab/model", exist_ok=True)
+os.makedirs("Lab/app/artifacts", exist_ok=True)
 
 # Load dataset
 X, y = load_wine(return_X_y=True)
@@ -34,7 +34,7 @@ r2 = r2_score(y_test, y_pred)
 mse = mean_squared_error(y_test, y_pred)
 
 # Save model
-joblib.dump(model, "model/model.pkl")
+joblib.dump(model, "Lab/model/model.pkl")
 
 # Save metrics
 metrics = {
@@ -42,7 +42,7 @@ metrics = {
     "mse": float(mse)
 }
 
-with open("app/artifacts/metrics.json", "w") as f:
+with open("Lab/app/artifacts/metrics.json", "w") as f:
     json.dump(metrics, f)
 
 print("Training complete")
