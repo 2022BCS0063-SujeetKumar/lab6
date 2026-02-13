@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = "2022bcs0063sujeet/ml-model"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Setup Python Virtual Environment') {
+            steps {
+                sh '''
+                python3 -m venv venv
+                . venv/bin/activate
+                pip install --upgrade pip
+                pip install -r requirements.txt
+                '''
+            }
+        }
+
+        stage('Train Model') {
+            steps {
+                sh '''
+                . venv/bin/activate
+                python app/train.py
+                '''
+            }
+        }
+
+        stage('Read Accuracy') {
+            steps {
+                script {
+                    def metrics = readJSON file: 'app/artifacts/metrics.json'
+                    env.CURRENT_ACCURACY = metrics.r2.toString()
+                    echo "Current Accuracy: ${env.CURRENT_ACCURACY}"
+                }
+            }
+        }
+
+        stage('Compare Accuracy') {
+            steps {
+                script {
+                    withCredentials([string(credentialsId: 'best-accuracy', variable: 'BEST_ACC')]) {
+
+                        echo "Stored Best Accuracy: ${BEST_ACC}"
+
+                        if (env.CURRENT_ACCURACY.toFloat() > BEST_ACC.toFloat()) {
+                            env.BUILD_DOCKER = "true"
+                            echo "New model is better ✅"
+                        } else {
+                            env.BUILD_DOCKER = "false"
+                            echo "New model is NOT better ❌"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Image (Conditional)') {
+            when {
+                expression { env.BUILD_DOCKER == "true" }
+            }
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}:${BUILD_NUMBER}")
+                }
+            }
+        }
+
+        stage('Push Docker Image (Conditional)') {
+            when {
+                expression { env.BUILD_DOCKER == "true" }
+            }
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+
+                        sh """
+                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest
+                        docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                        docker push ${DOCKER_IMAGE}:latest
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'app/artifacts/**', fingerprint: true
+        }
+    }
+}
