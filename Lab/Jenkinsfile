@@ -30,16 +30,17 @@ pipeline {
             }
         }
 
-        stage('Wait for API Readiness') {
-            steps {
+         stage('Wait for API Readiness') {
+    steps {
         sh '''
         echo "Waiting for API..."
-        for i in $(seq 1 20); do
-          if curl -s http://localhost:$PORT/ > /dev/null; then
+        for i in $(seq 1 30); do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$PORT/docs || true)
+          if [ "$STATUS" = "200" ]; then
             echo "API is ready"
             exit 0
           fi
-          echo "Retry $i..."
+          echo "Retry $i... status=$STATUS"
           sleep 3
         done
         echo "API failed to start"
