@@ -32,20 +32,21 @@ pipeline {
 
         stage('Wait for API Readiness') {
             steps {
-                sh '''
-                echo "Waiting for API..."
-                for i in {1..20}; do
-                  if curl -s http://localhost:$PORT/health > /dev/null; then
-                    echo "API is ready"
-                    exit 0
-                  fi
-                  sleep 3
-                done
-                echo "API failed to start"
-                exit 1
-                '''
-            }
-        }
+        sh '''
+        echo "Waiting for API..."
+        for i in $(seq 1 20); do
+          if curl -s http://localhost:$PORT/ > /dev/null; then
+            echo "API is ready"
+            exit 0
+          fi
+          echo "Retry $i..."
+          sleep 3
+        done
+        echo "API failed to start"
+        exit 1
+        '''
+    }
+}
 
         stage('Valid Inference Test') {
             steps {
