@@ -2,7 +2,9 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "2022bcs0063sujeet/ml-model"
+        IMAGE_NAME = "2022bcs0063sujeet/ml-model:latest"
+        CONTAINER_NAME = "wine-api-test"
+        PORT = "8000"
     }
 
     stages {
@@ -13,93 +15,80 @@ pipeline {
             }
         }
 
-        stage('Setup Python Virtual Environment') {
+        stage('Pull Image') {
+            steps {
+                sh 'docker pull $IMAGE_NAME'
+            }
+        }
+
+        stage('Run Container') {
             steps {
                 sh '''
-                python3 -m venv venv
-                . venv/bin/activate
-                pip install --upgrade pip
-                pip install -r Lab/requirements.txt
+                docker rm -f $CONTAINER_NAME || true
+                docker run -d -p $PORT:8000 --name $CONTAINER_NAME $IMAGE_NAME
                 '''
             }
         }
 
-        stage('Train Model') {
+        stage('Wait for API Readiness') {
             steps {
                 sh '''
-                . venv/bin/activate
-                python Lab/app/train.py
+                echo "Waiting for API..."
+                for i in {1..20}; do
+                  if curl -s http://localhost:$PORT/health > /dev/null; then
+                    echo "API is ready"
+                    exit 0
+                  fi
+                  sleep 3
+                done
+                echo "API failed to start"
+                exit 1
                 '''
             }
         }
 
-        stage('Read Accuracy') {
+        stage('Valid Inference Test') {
             steps {
-                script {
-                    def metrics = readJSON file: 'Lab/app/artifacts/metrics.json'
-                    env.CURRENT_ACCURACY = metrics.r2.toString()
-                    echo "Current Accuracy: ${env.CURRENT_ACCURACY}"
-                }
+                sh '''
+                RESPONSE=$(curl -s -X POST http://localhost:$PORT/predict \
+                  -H "Content-Type: application/json" \
+                  -d @Lab/tests/valid_input.json)
+
+                echo "Valid Response: $RESPONSE"
+
+                echo $RESPONSE | grep -q "wine_quality" || exit 1
+                '''
             }
         }
 
-        stage('Compare Accuracy') {
+        stage('Invalid Input Test') {
             steps {
-                script {
-                    withCredentials([string(credentialsId: 'best-accuracy', variable: 'BEST_ACC')]) {
+                sh '''
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                  -X POST http://localhost:$PORT/predict \
+                  -H "Content-Type: application/json" \
+                  -d @Lab/tests/invalid_input.json)
 
-                        echo "Stored Best Accuracy: ${BEST_ACC}"
+                echo "Invalid status: $STATUS"
 
-                        if (env.CURRENT_ACCURACY.toFloat() > BEST_ACC.toFloat()) {
-                            env.BUILD_DOCKER = "true"
-                            echo "New model is better ✅"
-                        } else {
-                            env.BUILD_DOCKER = "false"
-                            echo "New model is NOT better ❌"
-                        }
-                    }
-                }
+                if [ "$STATUS" -eq 200 ]; then
+                  echo "Invalid input should fail"
+                  exit 1
+                fi
+                '''
             }
         }
 
-        stage('Build Docker Image (Conditional)') {
-            when {
-                expression { env.BUILD_DOCKER == "true" }
-            }
+        stage('Stop Container') {
             steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${BUILD_NUMBER}", "Lab")
-                }
-            }
-        }
-
-        stage('Push Docker Image (Conditional)') {
-            when {
-                expression { env.BUILD_DOCKER == "true" }
-            }
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-
-                        sh """
-                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest
-                        docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
-                        docker push ${DOCKER_IMAGE}:latest
-                        """
-                    }
-                }
+                sh 'docker rm -f $CONTAINER_NAME || true'
             }
         }
     }
 
     post {
         always {
-            archiveArtifacts artifacts: 'Lab/app/artifacts/**', fingerprint: true
+            sh 'docker rm -f $CONTAINER_NAME || true'
         }
     }
 }
